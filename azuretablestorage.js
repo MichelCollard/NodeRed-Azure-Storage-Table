@@ -35,8 +35,16 @@ module.exports = function (RED) {
             }
 
             for(var key in jdata) {
-                    entity[key] = entGen.String(jdata[key]);      
-                };
+				if(Object.prototype.toString.call(jdata[key]) === '[object Date]') {
+					entity[key] = entGen.DateTime(jdata[key]); 
+					node.log("Cest une date!!!!");
+				}
+				else {
+					node.log("pas date!!!!");
+					entity[key] = entGen.String(jdata[key]); 
+				}
+            };
+			
             node.log(JSON.stringify(entity));
             entity["PartitionKey"] = entGen.String(entityClass.partitionKey);
             entity["RowKey"]= entGen.String(entityClass.rowKey);
