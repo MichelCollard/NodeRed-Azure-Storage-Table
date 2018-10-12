@@ -4,8 +4,7 @@ module.exports = function (RED) {
     var globaltable = null;
     var clientTableService = null;
     var clientAccountName = "";
-    var clientAccountKey = "";
-    var node = null;
+    var clientAccountKey = "";        
     var nodeConfig = null;
 
     var statusEnum = {
@@ -15,11 +14,11 @@ module.exports = function (RED) {
         error: { color: "grey", text: "Error" }
     };
 
-    var setStatus = function (status) {
+    var setStatus = function (node, status) {
         node.status({ fill: status.color, shape: "dot", text: status.text });
-    }
+    };
 
-    var senddata = function (msg) {
+    var senddata = function (node, msg) {
             var entityClass = msg.payload;
 			node.log('Saving data into Azure Table Storage :\n   data: ' + entityClass.partitionKey + " - " + entityClass.rowKey + " - " + entityClass.data + " - " + entityClass.tableName);
             // Create a message and send it to the Azure Table Storage
@@ -55,47 +54,47 @@ module.exports = function (RED) {
                 node.log('trying to insert');
                 if (err) {
                     node.error('Error while trying to save data:' + err.toString());
-                    setStatus(statusEnum.error);
+                    setStatus(node, statusEnum.error);
                 } else {
                     node.log('data saved.');
-                    setStatus(statusEnum.sent);
+                    setStatus(node, statusEnum.sent);
 					msg.payload = 'data saved.';
                     node.send(msg);
                 }
             });
         };
 
-    var readdata = function (msg, table, pkey, rkey) {
+    var readdata = function (node, msg, table, pkey, rkey) {
             var entityClass = msg.payload;
 			node.log('Reading data from Azure Table Storage :\n   data: ' + entityClass.partitionKey + " - " + entityClass.rowKey);
             clientTableService.retrieveEntity(entityClass.tableName, entityClass.partitionKey, entityClass.rowKey, function(err, result, response) {
                 if (err) {
                     node.error('Error while trying to read data:' + err.toString());
-                    setStatus(statusEnum.error);
-                } else {
-                    node.log(result.data._);
-                    setStatus(statusEnum.sent);
-                    node.send(result.data._);
+                    setStatus(node, statusEnum.error);
+                } else {                                    					
+					setStatus(node, statusEnum.sent);
+                    msg.payload = result;
+                    node.send(msg);
                 }
             });
-         }
+         };
 
-    var deleteTable = function (table) {
+    var deleteTable = function (node, table) {
         node.log("Deleting table");
         clientTableService.deleteTable(table, function (err) {
              if (err) {
                 node.error('Error while trying to delete table:' + err.toString());
-                setStatus(statusEnum.error);
+                setStatus(node, statusEnum.error);
             } else {
                 node.log('table deleted');
-                setStatus(statusEnum.sent);
+                setStatus(node, statusEnum.sent);
                 msg.payload = 'table deleted';
                 node.send(msg);
             }   
         });
-    }
+    };
 
-    var uptadeEntity = function (msg) {
+    var updateEntity = function (node, msg) {
             var entityClass = msg.payload;
 			node.log('updating entity');
             var entity = {
@@ -106,17 +105,17 @@ module.exports = function (RED) {
             clientTableService.insertOrReplaceEntity(entityClass.tableName, entity, function(err, result, response){
                 if (err) {
                     node.error('Error while trying to update entity:' + err.toString());
-                    setStatus(statusEnum.error);
+                    setStatus(node, statusEnum.error);
                 } else {
                     node.log('entity updated');
-                    setStatus(statusEnum.sent);
+                    setStatus(node, statusEnum.sent);
                     msg.payload = 'entity updated';
 					node.send(msg);
                 } 
             });
-         }
+         };
 
-    var deleteEntity = function (msg) {
+    var deleteEntity = function (node, msg) {
             var entityClass = msg.payload;
 			node.log('deleting entity');
             var entity = {
@@ -127,18 +126,18 @@ module.exports = function (RED) {
             clientTableService.deleteEntity(entityClass.tableName, entity, function(err, result, response){
                 if (err) {
                     node.error('Error while trying to delete entity:' + err.toString());
-                    setStatus(statusEnum.error);
+                    setStatus(node, statusEnum.error);
                 } else {
-                    node.log('entity deleted');
-                    setStatus(statusEnum.sent);
+                    node.log('entity deleted');                    
                     msg.payload = 'entity deleted';
 					node.send(msg);
+					setStatus(node, statusEnum.sent);
                 } 
             }); 
-         }
+         };
 
 
-    var queryEntity = function (table, fromcolumn, where, selectdata) {
+    var queryEntity = function (node, table, fromcolumn, where, selectdata) {
         var entityClass = msg.payload;
 		node.log('query entity');
         var query = new Client.TableQuery()
@@ -147,26 +146,26 @@ module.exports = function (RED) {
         clientTableService.queryEntities(entityClass.tableName, query, null, function(err, result, response){
             if (err) {
                 node.error('Error while trying to query entity:' + err.toString());
-                setStatus(statusEnum.error);
+                setStatus(node, statusEnum.error);
             } else {
                 //node.log(JSON.stringify(result.entries.data));
                 //setStatus(statusEnum.sent);
                 //node.send(result.entries.data._);
             } 
         });
-    }
+    };
 
-    var disconnectFrom = function () { 
+    var disconnectFrom = function (node) { 
          if (clientTableService) { 
              node.log('Disconnecting from Azure'); 
              clientTableService.removeAllListeners(); 
              clientTableService = null;
-             setStatus(statusEnum.disconnected); 
+             setStatus(node, statusEnum.disconnected); 
          } 
-     } 
+     };
 
 
-    function createTable(msg, callback) {
+    function createTable(node, msg, callback) {
         var entityClass = msg.payload;
 		node.log('Creating a table if not exists');
         var tableService = Client.createTableService(clientAccountName, clientAccountKey);
@@ -175,7 +174,7 @@ module.exports = function (RED) {
         if (!error) {
                 // result contains true if created; false if already exists
                 globaltable = entityClass.tableName;
-                callback(msg);
+                callback(node, msg);
          }
          else {
              node.error(error);
@@ -185,33 +184,33 @@ module.exports = function (RED) {
 
     // Main function called by Node-RED    
     function AzureTableStorage(config) {
-        // Store node for further use
-        node = this;
+        // Store node for further use        
         nodeConfig = config;
 
         // Create the Node-RED node
         RED.nodes.createNode(this, config);
+        var node = this;
         clientAccountName = node.credentials.accountname
         clientAccountKey = node.credentials.key;
 
-        this.on('input', function (msg) {
+        node.on('input', function (msg) {
 
             node.log('Received the input: ' + msg.payload.tableName);
             var action = msg.payload.action;
             // Sending data to Azure Table Storage
-            setStatus(statusEnum.sending);
+            setStatus(node, statusEnum.sending);
             switch (action) {
                 case "I":
                     node.log('Trying to insert entity');
-                    createTable(msg, senddata);
+                    createTable(node, msg, senddata);
                     break;
                 case "R":
                     node.log('Trying to read entity');
-                    createTable(msg, readdata);
+                    createTable(node, msg, readdata);
                     break;
                 case "DT":
                     node.log('Trying to delete table');
-                    deleteTable(msg.tableName);
+                    deleteTable(node, msg.tableName);
                     break;
                 case "Q":
                     //node.log('Trying to query data');
@@ -219,22 +218,22 @@ module.exports = function (RED) {
                     break;
                 case "U":
                     node.log('trying to update entity');
-                    createTable(msg, uptadeEntity);
+                    createTable(node, msg, updateEntity);
                     break;
                 case "D":
                     node.log('trying to delete entity');
-                    createTable(msg, deleteEntity);
+                    createTable(node, msg, deleteEntity);
                     break;
                 default:
                     node.log('action was not detected');
                     node.error('action was not detected');
-                    setStatus(statusEnum.error);
+                    setStatus(node, statusEnum.error);
                     break;
             }    
         });
 
-        this.on('close', function () {
-            disconnectFrom(this);
+        node.on('close', function () {
+            disconnectFrom(node);
         });
     }
 
